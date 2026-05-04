@@ -1,0 +1,401 @@
+import { Shield, ArrowLeft, Eye, EyeOff, UserPlus, Upload } from "lucide-react";
+import { useState } from "react";
+import { motion } from "framer-motion";
+
+import { supabase, logActivity } from "@/lib/supabase";
+import { toast } from "sonner";
+
+const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: () => void }) => {
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [step, setStep] = useState(1);
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Form states
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [dept, setDept] = useState("");
+  const [role, setRole] = useState("Admin");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (step < 3) {
+      setStep(step + 1);
+    } else {
+      if (password !== confirmPassword) {
+        toast.error("Passwords do not match");
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              first_name: firstName,
+              last_name: lastName,
+              dept,
+              role,
+            }
+          }
+        });
+
+        if (error) throw error;
+
+        // We removed the profile insertion logic to avoid schema mismatch errors 
+        // with the existing backend database.
+
+        await logActivity("Admin Registration", `New admin account created: ${email}`, "success");
+        toast.success("Registration successful! Please check your email for verification.");
+        onRegister();
+      } catch (error: any) {
+        toast.error(error.message || "Registration failed");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setAvatar(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const inputClass =
+    "w-full h-10 rounded-lg bg-muted/50 border border-border px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground";
+  const labelClass = "text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 block";
+
+  return (
+    <div className="min-h-screen flex items-center justify-center grid-bg relative py-10">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/5" />
+
+      <button
+        onClick={onBack}
+        className="absolute top-6 left-6 z-20 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back
+      </button>
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="glass-panel p-8 w-full max-w-lg relative z-10 neon-glow-cyan"
+      >
+        {/* Header */}
+        <div className="flex flex-col items-center gap-3 mb-6">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center">
+            <Shield className="w-7 h-7 text-primary" />
+          </div>
+          <div className="text-center">
+            <h1 className="text-xl font-bold text-foreground tracking-wide">Admin Registration</h1>
+            <p className="text-xs text-muted-foreground tracking-widest uppercase mt-1">Neon Watchdog Pro Portal</p>
+          </div>
+        </div>
+
+        {/* Step Indicator */}
+        <div className="flex items-center justify-center gap-2 mb-6">
+          {[1, 2, 3].map((s) => (
+            <div key={s} className="flex items-center gap-2">
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                  step >= s
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/50 border border-border text-muted-foreground"
+                }`}
+              >
+                {s}
+              </div>
+              {s < 3 && (
+                <div className={`w-8 h-0.5 ${step > s ? "bg-primary" : "bg-border"}`} />
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="text-center mb-5">
+          <p className="text-xs text-muted-foreground">
+            {step === 1 && "Personal Information"}
+            {step === 2 && "Organization Details"}
+            {step === 3 && "Security Credentials"}
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {step === 1 && (
+            <motion.div
+              key="step1"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="space-y-4"
+            >
+              {/* Avatar */}
+              <div className="flex justify-center">
+                <label className="cursor-pointer group">
+                  <div className="w-20 h-20 rounded-full bg-muted/50 border-2 border-dashed border-border group-hover:border-primary/50 flex items-center justify-center overflow-hidden transition-colors">
+                    {avatar ? (
+                      <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <Upload className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                    )}
+                  </div>
+                  <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+                  <p className="text-[9px] text-muted-foreground text-center mt-1">Upload Photo</p>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>First Name</label>
+                  <input type="text" placeholder="John" className={inputClass} required value={firstName} onChange={e => setFirstName(e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelClass}>Last Name</label>
+                  <input type="text" placeholder="Doe" className={inputClass} required value={lastName} onChange={e => setLastName(e.target.value)} />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Date of Birth</label>
+                <input type="date" className={inputClass} required />
+              </div>
+
+              <div>
+                <label className={labelClass}>Phone Number</label>
+                <input type="tel" placeholder="+1 (555) 000-0000" className={inputClass} required />
+              </div>
+
+              <div>
+                <label className={labelClass}>Address</label>
+                <input type="text" placeholder="123 Security Blvd" className={inputClass} required />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>City</label>
+                  <input type="text" placeholder="New York" className={inputClass} required />
+                </div>
+                <div>
+                  <label className={labelClass}>Country</label>
+                  <select className={inputClass} required>
+                    <option value="">Select</option>
+                    <option>United States</option>
+                    <option>United Kingdom</option>
+                    <option>Canada</option>
+                    <option>Germany</option>
+                    <option>India</option>
+                    <option>Australia</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {step === 2 && (
+            <motion.div
+              key="step2"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="space-y-4"
+            >
+              <div>
+                <label className={labelClass}>Employee ID</label>
+                <input type="text" placeholder="EMP-2026-0001" className={inputClass + " font-mono"} required />
+              </div>
+
+              <div>
+                <label className={labelClass}>Department</label>
+                <select className={inputClass} required value={dept} onChange={e => setDept(e.target.value)}>
+                  <option value="">Select Department</option>
+                  <option>Cybersecurity</option>
+                  <option>IT Operations</option>
+                  <option>Risk Management</option>
+                  <option>Compliance</option>
+                  <option>Executive Leadership</option>
+                  <option>Network Security</option>
+                  <option>Incident Response</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Designation</label>
+                <select className={inputClass} required>
+                  <option value="">Select Designation</option>
+                  <option>Chief Security Officer (CSO)</option>
+                  <option>Security Director</option>
+                  <option>Security Analyst</option>
+                  <option>SOC Manager</option>
+                  <option>Incident Response Lead</option>
+                  <option>Threat Intelligence Analyst</option>
+                  <option>Security Administrator</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Organization Name</label>
+                <input type="text" placeholder="Sentinel Corp" className={inputClass} required />
+              </div>
+
+              <div>
+                <label className={labelClass}>Admin Access Level</label>
+                <select className={inputClass} required>
+                  <option value="">Select Access Level</option>
+                  <option>Super Admin — Full system access</option>
+                  <option>Security Admin — Security configurations</option>
+                  <option>Analyst — Read & investigate</option>
+                  <option>Auditor — Read-only compliance</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Security Clearance</label>
+                <select className={inputClass} required>
+                  <option value="">Select Clearance</option>
+                  <option>Level 5 — Top Secret</option>
+                  <option>Level 4 — Secret</option>
+                  <option>Level 3 — Confidential</option>
+                  <option>Level 2 — Restricted</option>
+                  <option>Level 1 — Unclassified</option>
+                </select>
+              </div>
+            </motion.div>
+          )}
+
+          {step === 3 && (
+            <motion.div
+              key="step3"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="space-y-4"
+            >
+              <div>
+                <label className={labelClass}>Official Email</label>
+                <input type="email" placeholder="admin@neon-watchdog.sec" className={inputClass} required value={email} onChange={e => setEmail(e.target.value)} />
+              </div>
+
+              <div>
+                <label className={labelClass}>Create Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Min 12 characters"
+                    className={inputClass + " pr-10"}
+                    required
+                    minLength={12}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[9px] text-muted-foreground mt-1">Must include uppercase, lowercase, number & symbol</p>
+              </div>
+
+              <div>
+                <label className={labelClass}>Confirm Password</label>
+                <div className="relative">
+                  <input
+                    type={showConfirm ? "text" : "password"}
+                    placeholder="Re-enter password"
+                    className={inputClass + " pr-10"}
+                    required
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm(!showConfirm)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  >
+                    {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Two-Factor Authentication</label>
+                <select className={inputClass} required>
+                  <option value="">Select 2FA Method</option>
+                  <option>Authenticator App (TOTP)</option>
+                  <option>Hardware Security Key (FIDO2)</option>
+                  <option>SMS Verification</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Security Question</label>
+                <select className={inputClass} required>
+                  <option value="">Select Question</option>
+                  <option>What was your first security certification?</option>
+                  <option>Name of your first SOC team?</option>
+                  <option>First incident you investigated?</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Security Answer</label>
+                <input type="text" placeholder="Your answer" className={inputClass} required />
+              </div>
+
+              <div className="flex items-start gap-2 pt-1">
+                <input type="checkbox" required className="mt-1 accent-primary" />
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  I agree to the Neon Watchdog Pro Admin Terms of Service, Data Protection Policy,
+                  and acknowledge the responsibility of admin-level access to insider risk data.
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            {step > 1 && (
+              <button
+                type="button"
+                onClick={() => setStep(step - 1)}
+                className="flex-1 h-10 rounded-lg border border-border font-semibold text-sm hover:bg-muted/50 transition-colors"
+              >
+                Back
+              </button>
+            )}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex-1 h-10 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {step < 3 ? (
+                  "Continue"
+                ) : (
+                  <>
+                    <UserPlus className="w-4 h-4" />
+                    {isLoading ? "Registering..." : "Register Admin"}
+                  </>
+                )}
+              </button>
+          </div>
+        </form>
+
+        <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-muted-foreground font-mono">
+          <span className="pulse-dot pulse-dot-cyan" />
+          Encrypted Connection Active
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+export default RegisterPage;
