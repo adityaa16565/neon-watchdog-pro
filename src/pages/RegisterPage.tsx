@@ -109,21 +109,44 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
       setIsLoading(true);
       try {
-        // Step 1: Create Auth user
-        const { data: { user }, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-
-        if (signUpError && !signUpError.message.includes("already registered")) {
-          throw signUpError;
+        // Debug check for Env Variables
+        if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+          throw new Error("Vercel Environment Variables are missing! Please check Vercel Dashboard.");
         }
 
-        // Step 2: Create profile in admin_profiles
+        console.log("Starting Registration for:", email);
+
+        // Step 1: Create Auth user
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { first_name: firstName, last_name: lastName }
+          }
+        });
+
+        // If user already exists, Supabase might throw an error or return an existing user depending on settings
+        if (signUpError) {
+          console.error("Auth Error:", signUpError);
+          // If the error is about existing user, we try to create profile anyway
+          if (!signUpError.message.includes("already registered")) {
+            throw signUpError;
+          }
+        }
+
+        const authUser = signUpData.user || (await supabase.auth.getUser()).data.user;
+        
+        if (!authUser) {
+          throw new Error("Identity verification failed in Supabase. Check if email is confirmed.");
+        }
+
+        console.log("User Auth Verified (ID: " + authUser.id + "). Syncing Profile...");
+
+        // Step 2: Create/Update profile in admin_profiles
         const { error: profileError } = await supabase
           .from('admin_profiles')
-          .insert([{
-            id: user?.id || (await supabase.auth.getUser()).data.user?.id || crypto.randomUUID(),
+          .upsert([{
+            id: authUser.id,
             name: `${firstName} ${lastName}`,
             email,
             phone,
@@ -131,17 +154,23 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
             dept,
             designation,
             org_name: orgName,
-            access_level: accessLevel,
-            clearance_level: clearance,
             role: 'Admin',
             status: 'Active'
           }]);
 
-        await logActivity("Admin Registered", `New admin ${email} verified and created`, "success");
-        toast.success("Account verified and created successfully!");
+        if (profileError) {
+          console.error("Profile Sync Error:", profileError);
+          toast.warning("Auth account ready, but profile data sync was blocked by database.");
+        } else {
+          toast.success("Security Clearance Granted. Welcome to the Network.");
+          await logActivity("New Admin Onboarded", `Admin ${email} registered successfully`, "success");
+        }
+
+        // Finalize
         onRegister();
       } catch (error: any) {
-        toast.error(error.message || "Registration failed");
+        console.error("System-wide Registration Failure:", error);
+        toast.error(error.message || "Registration protocol failed.");
       } finally {
         setIsLoading(false);
       }
