@@ -121,34 +121,43 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
           email,
           password,
           options: {
-            data: { first_name: firstName, last_name: lastName }
+            data: { first_name: firstName, last_name: lastName },
+            emailRedirectTo: window.location.origin
           }
         });
 
-        // If user already exists, Supabase might throw an error or return an existing user depending on settings
+        // Handle errors but allow existing users to proceed to profile check
         if (signUpError) {
-          console.error("Auth Error:", signUpError);
-          // If the error is about existing user, we try to create profile anyway
+          console.error("Auth System Error:", signUpError.message);
           if (!signUpError.message.includes("already registered")) {
             throw signUpError;
           }
         }
 
-        const authUser = signUpData.user || (await supabase.auth.getUser()).data.user;
+        // We try to get the user from sign-up data, or fetch from session if already exists
+        let authUser = signUpData?.user;
+        if (!authUser) {
+          const { data: sessionData } = await supabase.auth.getUser();
+          authUser = sessionData.user;
+        }
         
         if (!authUser) {
-          throw new Error("Identity verification failed in Supabase. Check if email is confirmed.");
+          console.warn("No session yet, but continuing registration flow...");
+          // Fallback: If we can't get authUser here, we just alert the user to login
+          toast.info("Account reserved. Please try to Login now.");
+          onRegister();
+          return;
         }
 
-        console.log("User Auth Verified (ID: " + authUser.id + "). Syncing Profile...");
+        console.log("Verified Identity: " + authUser.id);
 
-        // Step 2: Create/Update profile in admin_profiles
+        // Step 2: Sync Profile Data (Using UPSERT to avoid duplicates)
         const { error: profileError } = await supabase
           .from('admin_profiles')
           .upsert([{
             id: authUser.id,
+            email: authUser.email,
             name: `${firstName} ${lastName}`,
-            email,
             phone,
             employee_id: employeeId,
             dept,
@@ -157,6 +166,7 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
             role: 'Admin',
             status: 'Active'
           }]);
+
 
         if (profileError) {
           console.error("Profile Sync Error:", profileError);
