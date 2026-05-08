@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 
 import { supabase, logActivity } from "@/lib/supabase";
 import { toast } from "sonner";
+import emailjs from "@emailjs/browser";
 
 const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: () => void }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -14,18 +15,51 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
   // Form states
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [dob, setDob] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [country, setCountry] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
   const [dept, setDept] = useState("");
+  const [designation, setDesignation] = useState("");
+  const [orgName, setOrgName] = useState("");
+  const [accessLevel, setAccessLevel] = useState("");
+  const [clearance, setClearance] = useState("");
   const [role, setRole] = useState("Admin");
+  const [otp, setOtp] = useState("");
+  const [generatedOtp, setGeneratedOtp] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (step < 3) {
-      setStep(step + 1);
-    } else {
+    
+    // Step validation
+    if (step === 1) {
+      if (phone.length !== 10) {
+        toast.error("Please enter a valid 10-digit mobile number");
+        return;
+      }
+      if (!firstName || !lastName || !dob || !address || !city || !country) {
+        toast.error("Please fill all personal information fields");
+        return;
+      }
+      setStep(2);
+      return;
+    }
+
+    if (step === 2) {
+      if (!employeeId || !dept || !designation || !orgName || !accessLevel || !clearance) {
+        toast.error("Please fill all organization details");
+        return;
+      }
+      setStep(3);
+      return;
+    }
+    if (step === 3) {
       if (password !== confirmPassword) {
         toast.error("Passwords do not match");
         return;
@@ -33,26 +67,78 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
       setIsLoading(true);
       try {
-        const { data, error } = await supabase.auth.signUp({
+        // Generate random 6-digit OTP
+        const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+        setGeneratedOtp(newOtp);
+
+        // Send Email via EmailJS
+        const templateParams = {
+          from_name: "Neon Watchdog Pro",
+          to_email: email,      // Ensure this matches your template field
+          reply_to: email,
+          passcode: newOtp,     // Matches your {{passcode}}
+          time: new Date().toLocaleTimeString(), // Matches your {{time}}
+          message: `Your verification code is ${newOtp}`
+        };
+
+        const response = await emailjs.send(
+          import.meta.env.VITE_EMAILJS_SERVICE_ID,
+          import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+          templateParams,
+          import.meta.env.VITE_EMAILJS_PUBLIC_KEY
+        );
+
+        if (response.status === 200) {
+          toast.success("Verification code sent to your email!");
+          setStep(4);
+        } else {
+          throw new Error("Failed to send email");
+        }
+      } catch (error: any) {
+        console.error("EmailJS Error:", error);
+        const errorMsg = error?.text || error?.message || "Check your EmailJS keys & Service status";
+        toast.error(`EmailJS Error: ${errorMsg}`);
+      } finally {
+        setIsLoading(false);
+      }
+    } else if (step === 4) {
+      if (otp !== generatedOtp) {
+        toast.error("Invalid verification code");
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        // Step 1: Create Auth user
+        const { data: { user }, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            data: {
-              first_name: firstName,
-              last_name: lastName,
-              dept,
-              role,
-            }
-          }
         });
 
-        if (error) throw error;
+        if (signUpError && !signUpError.message.includes("already registered")) {
+          throw signUpError;
+        }
 
-        // We removed the profile insertion logic to avoid schema mismatch errors 
-        // with the existing backend database.
+        // Step 2: Create profile in admin_profiles
+        const { error: profileError } = await supabase
+          .from('admin_profiles')
+          .insert([{
+            id: user?.id || (await supabase.auth.getUser()).data.user?.id || crypto.randomUUID(),
+            name: `${firstName} ${lastName}`,
+            email,
+            phone,
+            employee_id: employeeId,
+            dept,
+            designation,
+            org_name: orgName,
+            access_level: accessLevel,
+            clearance_level: clearance,
+            role: 'Admin',
+            status: 'Active'
+          }]);
 
-        await logActivity("Admin Registration", `New admin account created: ${email}`, "success");
-        toast.success("Registration successful! Please check your email for verification.");
+        await logActivity("Admin Registered", `New admin ${email} verified and created`, "success");
+        toast.success("Account verified and created successfully!");
         onRegister();
       } catch (error: any) {
         toast.error(error.message || "Registration failed");
@@ -105,10 +191,10 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
         {/* Step Indicator */}
         <div className="flex items-center justify-center gap-2 mb-6">
-          {[1, 2, 3].map((s) => (
+          {[1, 2, 3, 4].map((s) => (
             <div key={s} className="flex items-center gap-2">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors ${
                   step >= s
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted/50 border border-border text-muted-foreground"
@@ -116,8 +202,8 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
               >
                 {s}
               </div>
-              {s < 3 && (
-                <div className={`w-8 h-0.5 ${step > s ? "bg-primary" : "bg-border"}`} />
+              {s < 4 && (
+                <div className={`w-6 h-0.5 ${step > s ? "bg-primary" : "bg-border"}`} />
               )}
             </div>
           ))}
@@ -127,6 +213,7 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
             {step === 1 && "Personal Information"}
             {step === 2 && "Organization Details"}
             {step === 3 && "Security Credentials"}
+            {step === 4 && "Verification Required"}
           </p>
         </div>
 
@@ -166,27 +253,40 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
               <div>
                 <label className={labelClass}>Date of Birth</label>
-                <input type="date" className={inputClass} required />
+                <input type="date" className={inputClass} required value={dob} onChange={e => setDob(e.target.value)} />
               </div>
 
               <div>
                 <label className={labelClass}>Phone Number</label>
-                <input type="tel" placeholder="+1 (555) 000-0000" className={inputClass} required />
+                <input 
+                  type="tel" 
+                  placeholder="10-digit Mobile Number" 
+                  className={inputClass} 
+                  required 
+                  maxLength={10}
+                  pattern="[0-9]{10}"
+                  value={phone} 
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, "");
+                    setPhone(val);
+                  }} 
+                />
+                <p className="text-[9px] text-muted-foreground mt-1">Example: 9876543210</p>
               </div>
 
               <div>
                 <label className={labelClass}>Address</label>
-                <input type="text" placeholder="123 Security Blvd" className={inputClass} required />
+                <input type="text" placeholder="123 Security Blvd" className={inputClass} required value={address} onChange={e => setAddress(e.target.value)} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelClass}>City</label>
-                  <input type="text" placeholder="New York" className={inputClass} required />
+                  <input type="text" placeholder="New York" className={inputClass} required value={city} onChange={e => setCity(e.target.value)} />
                 </div>
                 <div>
                   <label className={labelClass}>Country</label>
-                  <select className={inputClass} required>
+                  <select className={inputClass} required value={country} onChange={e => setCountry(e.target.value)}>
                     <option value="">Select</option>
                     <option>United States</option>
                     <option>United Kingdom</option>
@@ -210,7 +310,7 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
             >
               <div>
                 <label className={labelClass}>Employee ID</label>
-                <input type="text" placeholder="EMP-2026-0001" className={inputClass + " font-mono"} required />
+                <input type="text" placeholder="NW-2026-0001" className={inputClass + " font-mono"} required value={employeeId} onChange={e => setEmployeeId(e.target.value)} />
               </div>
 
               <div>
@@ -229,7 +329,7 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
               <div>
                 <label className={labelClass}>Designation</label>
-                <select className={inputClass} required>
+                <select className={inputClass} required value={designation} onChange={e => setDesignation(e.target.value)}>
                   <option value="">Select Designation</option>
                   <option>Chief Security Officer (CSO)</option>
                   <option>Security Director</option>
@@ -243,12 +343,12 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
               <div>
                 <label className={labelClass}>Organization Name</label>
-                <input type="text" placeholder="Sentinel Corp" className={inputClass} required />
+                <input type="text" placeholder="Sentinel Corp" className={inputClass} required value={orgName} onChange={e => setOrgName(e.target.value)} />
               </div>
 
               <div>
                 <label className={labelClass}>Admin Access Level</label>
-                <select className={inputClass} required>
+                <select className={inputClass} required value={accessLevel} onChange={e => setAccessLevel(e.target.value)}>
                   <option value="">Select Access Level</option>
                   <option>Super Admin — Full system access</option>
                   <option>Security Admin — Security configurations</option>
@@ -259,7 +359,7 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
               <div>
                 <label className={labelClass}>Security Clearance</label>
-                <select className={inputClass} required>
+                <select className={inputClass} required value={clearance} onChange={e => setClearance(e.target.value)}>
                   <option value="">Select Clearance</option>
                   <option>Level 5 — Top Secret</option>
                   <option>Level 4 — Secret</option>
@@ -288,10 +388,11 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
-                    placeholder="Min 12 characters"
+                    placeholder="Min 8 characters"
                     className={inputClass + " pr-10"}
                     required
-                    minLength={12}
+                    minLength={8}
+                    maxLength={12}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                   />
@@ -330,27 +431,10 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
               <div>
                 <label className={labelClass}>Two-Factor Authentication</label>
                 <select className={inputClass} required>
-                  <option value="">Select 2FA Method</option>
-                  <option>Authenticator App (TOTP)</option>
-                  <option>Hardware Security Key (FIDO2)</option>
-                  <option>SMS Verification</option>
+                  <option value="email">Email Verification (OTP)</option>
                 </select>
               </div>
 
-              <div>
-                <label className={labelClass}>Security Question</label>
-                <select className={inputClass} required>
-                  <option value="">Select Question</option>
-                  <option>What was your first security certification?</option>
-                  <option>Name of your first SOC team?</option>
-                  <option>First incident you investigated?</option>
-                </select>
-              </div>
-
-              <div>
-                <label className={labelClass}>Security Answer</label>
-                <input type="text" placeholder="Your answer" className={inputClass} required />
-              </div>
 
               <div className="flex items-start gap-2 pt-1">
                 <input type="checkbox" required className="mt-1 accent-primary" />
@@ -358,6 +442,69 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
                   I agree to the Neon Watchdog Pro Admin Terms of Service, Data Protection Policy,
                   and acknowledge the responsibility of admin-level access to insider risk data.
                 </p>
+              </div>
+            </motion.div>
+          )}
+
+          {step === 4 && (
+            <motion.div
+              key="step4"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="space-y-6 py-4"
+            >
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                  <Shield className="w-6 h-6 text-primary" />
+                </div>
+                <h3 className="text-sm font-bold text-foreground">Verify Your Identity</h3>
+                <p className="text-[11px] text-muted-foreground px-4">
+                  We've sent a 6-digit verification code to <strong>{email}</strong> for secure registration.
+                </p>
+              </div>
+
+              <div>
+                <label className={labelClass + " text-center"}>Verification Code (OTP)</label>
+                <input 
+                  type="text" 
+                  placeholder="0 0 0 0 0 0" 
+                  className={inputClass + " text-center text-lg tracking-[0.5em] font-bold h-12"} 
+                  required 
+                  maxLength={6}
+                  value={otp}
+                  onChange={e => setOtp(e.target.value)}
+                />
+              </div>
+
+              <div className="text-center">
+                <button 
+                  type="button"
+                  className="text-[10px] text-primary hover:underline uppercase tracking-wider font-bold"
+                  onClick={async () => {
+                    setIsLoading(true);
+                    try {
+                      const templateParams = {
+                        to_email: email,
+                        to_name: `${firstName} ${lastName}`,
+                        passcode: generatedOtp,
+                      };
+
+                      await emailjs.send(
+                        import.meta.env.VITE_EMAILJS_SERVICE_ID,
+                        import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+                        templateParams,
+                        import.meta.env.VITE_EMAILJS_PUBLIC_KEY
+                      );
+                      toast.success("Verification code resent to your email!");
+                    } catch (e) {
+                      toast.error("Failed to resend code.");
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }}
+                >
+                  Resend Code
+                </button>
               </div>
             </motion.div>
           )}
@@ -379,10 +526,15 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
               >
                 {step < 3 ? (
                   "Continue"
-                ) : (
+                ) : step === 3 ? (
                   <>
                     <UserPlus className="w-4 h-4" />
                     {isLoading ? "Registering..." : "Register Admin"}
+                  </>
+                ) : (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    {isLoading ? "Verifying..." : "Verify & Complete"}
                   </>
                 )}
               </button>

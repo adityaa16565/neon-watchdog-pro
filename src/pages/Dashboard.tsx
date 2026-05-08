@@ -12,19 +12,6 @@ import { Menu, Radio, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const Dashboard = () => {
-  const handleSimulateBreach = () => {
-    toast.error("CRITICAL: SVM detected mass data exfiltration!", {
-      description: "Triggering SOAR Playbook PB-001: Isolated Network.",
-      duration: 5000,
-    });
-    
-    setTimeout(() => {
-      toast.success("DEFENSE ACTIVE: Target User_042 has been isolated.", {
-        icon: <Zap className="w-4 h-4" />,
-      });
-    }, 1500);
-  };
-
   return (
     <div className="flex-1 flex flex-col min-h-screen">
       <header className="h-12 flex items-center justify-between border-b border-border px-4">
@@ -32,14 +19,6 @@ const Dashboard = () => {
           <SidebarTrigger>
             <Menu className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
           </SidebarTrigger>
-        </div>
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={handleSimulateBreach}
-            className="flex items-center gap-2 px-3 py-1 rounded-md bg-neon-red/10 border border-neon-red/30 text-[10px] font-bold text-neon-red hover:bg-neon-red/20 transition-all uppercase tracking-tighter"
-          >
-            <Radio className="w-3 h-3 animate-pulse" /> Simulate Breach
-          </button>
         </div>
       </header>
 

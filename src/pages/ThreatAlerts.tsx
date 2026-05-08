@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Menu, AlertTriangle, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -76,18 +76,38 @@ const ThreatAlerts = () => {
     fetchLiveAlerts();
   }, []);
 
-  const handleResolve = (id: string) => {
+  const handleResolve = async (id: string) => {
     setLocalAlerts(prev => prev.map(a => 
       a.id === id ? { ...a, status: "Mitigated" } : a
     ));
     setSelectedId(null);
+
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      await supabase
+        .from("threat_alerts")
+        .update({ status: "Mitigated" })
+        .eq("id", id);
+    } catch (err) {
+      console.warn("Could not update threat alert status on the backend.", err);
+    }
   };
 
-  const handleEscalate = (id: string) => {
+  const handleEscalate = async (id: string) => {
     setLocalAlerts(prev => prev.map(a => 
       a.id === id ? { ...a, status: "Active", risk: Math.min(100, a.risk + 5) } : a
     ));
     setSelectedId(null);
+
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      await supabase
+        .from("threat_alerts")
+        .update({ status: "Active" })
+        .eq("id", id);
+    } catch (err) {
+      console.warn("Could not escalate threat alert on the backend.", err);
+    }
   };
 
   const toggleSort = (field: SortField) => {

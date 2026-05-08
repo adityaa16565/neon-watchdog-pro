@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Menu, Users, Search, Plus, MoreVertical, Pencil, Trash2, Eye, Shield, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -30,16 +31,7 @@ interface UserRecord {
   permissions: string[];
 }
 
-const initialUsers: UserRecord[] = [
-  { id: "042", name: "J. Morrison", email: "j.morrison@corp.io", dept: "Finance", role: "Analyst", status: "Active", risk: 94, peerGroup: "FIN-A", devices: 3, flags: 4, lastActive: "2 min ago", permissions: ["read", "write", "export"] },
-  { id: "107", name: "S. Chen", email: "s.chen@corp.io", dept: "IT", role: "Admin", status: "Active", risk: 87, peerGroup: "IT-B", devices: 5, flags: 3, lastActive: "5 min ago", permissions: ["read", "write", "export", "admin"] },
-  { id: "089", name: "A. Petrov", email: "a.petrov@corp.io", dept: "Engineering", role: "Analyst", status: "Active", risk: 91, peerGroup: "ENG-A", devices: 2, flags: 3, lastActive: "12 min ago", permissions: ["read", "write"] },
-  { id: "034", name: "M. Williams", email: "m.williams@corp.io", dept: "HR", role: "Manager", status: "Active", risk: 72, peerGroup: "HR-A", devices: 2, flags: 1, lastActive: "1 hr ago", permissions: ["read", "write", "approve"] },
-  { id: "156", name: "L. Garcia", email: "l.garcia@corp.io", dept: "Marketing", role: "Viewer", status: "Active", risk: 68, peerGroup: "MKT-A", devices: 1, flags: 1, lastActive: "3 hr ago", permissions: ["read"] },
-  { id: "203", name: "R. Thompson", email: "r.thompson@corp.io", dept: "Finance", role: "Analyst", status: "Suspended", risk: 85, peerGroup: "FIN-B", devices: 3, flags: 2, lastActive: "2 days ago", permissions: ["read", "write"] },
-  { id: "078", name: "K. Nakamura", email: "k.nakamura@corp.io", dept: "Legal", role: "Viewer", status: "Active", risk: 45, peerGroup: "LEG-A", devices: 1, flags: 0, lastActive: "30 min ago", permissions: ["read"] },
-  { id: "291", name: "D. Brown", email: "d.brown@corp.io", dept: "IT", role: "Analyst", status: "Inactive", risk: 63, peerGroup: "IT-A", devices: 4, flags: 1, lastActive: "1 week ago", permissions: ["read", "write"] },
-];
+const initialUsers: UserRecord[] = [];
 
 const riskColor = (r: number) => r >= 85 ? "text-destructive" : r >= 65 ? "text-accent" : "text-primary";
 
@@ -65,10 +57,9 @@ const emptyUser: Omit<UserRecord, "id"> = {
 };
 
 const UserManagement = () => {
-  const [users, setUsers] = useState<UserRecord[]>(() => {
-    const saved = localStorage.getItem("neon_users");
-    return saved ? JSON.parse(saved) : initialUsers;
-  });
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
   
   const [search, setSearch] = useState("");
   const [filterDept, setFilterDept] = useState<string>("all");
@@ -81,8 +72,49 @@ const UserManagement = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    localStorage.setItem("neon_users", JSON.stringify(users));
-  }, [users]);
+    const fetchUsers = async () => {
+      try {
+        setIsLoading(true);
+        setDbError(null);
+        
+        const { data, error } = await supabase
+          .from('employee_records')
+          .select('*');
+        
+        if (error) {
+          setDbError(`Supabase Error: ${error.message} (${error.code})`);
+        } else if (!data || data.length === 0) {
+          setDbError("Table 'employee_records' is connected but has 0 records.");
+        } else {
+          const mappedUsers: UserRecord[] = data.map((p, index) => ({
+            id: p.id ? p.id.toString().slice(0, 8) : `dummy-${index}`,
+            name: p.name || 'No Name',
+            email: p.email || 'No Email',
+            dept: p.dept || 'General',
+            role: (p.role as UserRole) || 'Analyst',
+            status: (p.status as UserStatus) || 'Active',
+            risk: p.risk || 0,
+            peerGroup: p.peer_group || 'N/A',
+            devices: p.devices || 0,
+            flags: p.flags || 0,
+            lastActive: 'Online',
+            permissions: p.permissions || ['read']
+          }));
+          setUsers(mappedUsers);
+        }
+      } catch (err: any) {
+        setDbError(`Critical Error: ${err.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+
+
+
+
+    fetchUsers();
+  }, []);
 
   const departments = [...new Set(users.map(u => u.dept))];
 
@@ -116,20 +148,65 @@ const UserManagement = () => {
     setDetailOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name.trim() || !formData.email.trim()) {
       toast({ title: "Validation Error", description: "Name and email are required.", variant: "destructive" });
       return;
     }
-    if (isNew) {
-      const newId = String(Math.floor(Math.random() * 900) + 100);
-      setUsers(prev => [...prev, { ...formData, id: newId }]);
-      toast({ title: "User Created", description: `${formData.name} has been added.` });
-    } else if (selectedUser) {
-      setUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, ...formData } : u));
-      toast({ title: "User Updated", description: `${formData.name} has been updated.` });
+
+    setIsLoading(true);
+    try {
+      if (isNew) {
+        // Safe ID generation
+        const tempId = crypto.randomUUID?.() || Math.random().toString(36).substring(2);
+        
+        const { error } = await supabase
+          .from('employee_records')
+          .insert([{
+            id: tempId,
+            name: formData.name,
+            email: formData.email,
+            dept: formData.dept || 'General',
+            role: formData.role || 'Analyst',
+            status: formData.status || 'Active',
+            risk: Number(formData.risk) || 0,
+            peer_group: formData.peerGroup || 'N/A',
+            devices: Number(formData.devices) || 0,
+            flags: Number(formData.flags) || 0,
+            permissions: formData.permissions || ['read']
+          }]);
+
+        if (error) throw error;
+        toast({ title: "User Created", description: `${formData.name} added to Database.` });
+      } else if (selectedUser) {
+        const { error } = await supabase
+          .from('employee_records')
+          .update({
+            name: formData.name,
+            email: formData.email,
+            dept: formData.dept,
+            role: formData.role,
+            status: formData.status,
+            risk: Number(formData.risk),
+            peer_group: formData.peerGroup,
+            devices: Number(formData.devices),
+            flags: Number(formData.flags)
+          })
+          .eq('id', selectedUser.id);
+
+        if (error) throw error;
+        toast({ title: "User Updated", description: `${formData.name} updated successfully.` });
+      }
+      
+      // Auto-refresh to show new data
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (error: any) {
+      console.error("Save Error:", error);
+      toast({ title: "Save Failed", description: error.message || "Database rejected the entry", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+      setEditDialogOpen(false);
     }
-    setEditDialogOpen(false);
   };
 
   const handleDelete = () => {
