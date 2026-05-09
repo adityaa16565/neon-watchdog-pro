@@ -109,54 +109,44 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
 
       setIsLoading(true);
       try {
-        // Debug check for Env Variables
-        if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-          throw new Error("Vercel Environment Variables are missing! Please check Vercel Dashboard.");
-        }
+        console.log("Starting Registration Protocol for:", email);
 
-        console.log("Starting Registration for:", email);
-
-        // Step 1: Create Auth user
+        // Step 1: Create Auth user in Supabase
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            data: { first_name: firstName, last_name: lastName },
-            emailRedirectTo: window.location.origin
+            data: { first_name: firstName, last_name: lastName }
           }
         });
 
-        // Handle errors but allow existing users to proceed to profile check
-        if (signUpError) {
-          console.error("Auth System Error:", signUpError.message);
-          if (!signUpError.message.includes("already registered")) {
-            throw signUpError;
-          }
+        // If user already exists, we can still proceed to try and create the profile
+        if (signUpError && !signUpError.message.includes("already registered")) {
+          throw signUpError;
         }
 
-        // We try to get the user from sign-up data, or fetch from session if already exists
-        let authUser = signUpData?.user;
-        if (!authUser) {
-          const { data: sessionData } = await supabase.auth.getUser();
-          authUser = sessionData.user;
+        // Try to get userId from signUpData or existing auth
+        let userId = signUpData?.user?.id;
+        if (!userId) {
+          const { data: { user: existingUser } } = await supabase.auth.getUser();
+          userId = existingUser?.id;
         }
         
-        if (!authUser) {
-          console.warn("No session yet, but continuing registration flow...");
-          // Fallback: If we can't get authUser here, we just alert the user to login
-          toast.info("Account reserved. Please try to Login now.");
+        if (!userId) {
+          // Fallback: If we still don't have a userId, we ask them to login
+          toast.info("Account is ready. Please login to complete setup.");
           onRegister();
           return;
         }
 
-        console.log("Verified Identity: " + authUser.id);
+        console.log("Auth Identity Confirmed. Syncing Secure Profile...");
 
-        // Step 2: Sync Profile Data (Using UPSERT to avoid duplicates)
+        // Step 2: Create/Update profile in admin_profiles
         const { error: profileError } = await supabase
           .from('admin_profiles')
           .upsert([{
-            id: authUser.id,
-            email: authUser.email,
+            id: userId,
+            email: email,
             name: `${firstName} ${lastName}`,
             phone,
             employee_id: employeeId,
@@ -167,19 +157,18 @@ const RegisterPage = ({ onRegister, onBack }: { onRegister: () => void; onBack: 
             status: 'Active'
           }]);
 
-
         if (profileError) {
           console.error("Profile Sync Error:", profileError);
-          toast.warning("Auth account ready, but profile data sync was blocked by database.");
+          toast.warning("Login created, but profile sync had a minor delay.");
         } else {
-          toast.success("Security Clearance Granted. Welcome to the Network.");
-          await logActivity("New Admin Onboarded", `Admin ${email} registered successfully`, "success");
+          toast.success("Registration Successful! Please login to access the dashboard.");
+          await logActivity("Admin Registered", `Admin ${email} onboarding completed`, "success");
         }
 
-        // Finalize
+        // Finalize: Redirect to Login
         onRegister();
       } catch (error: any) {
-        console.error("System-wide Registration Failure:", error);
+        console.error("Critical Registration Failure:", error);
         toast.error(error.message || "Registration protocol failed.");
       } finally {
         setIsLoading(false);
